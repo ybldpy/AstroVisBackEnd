@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: astroVisBackend
+  config:
+    import: classpath:config/databaseConfig.yml
+
+
+server:
+  port: 8080
+
+
+
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  logging:
+    level:
+      com.astrovis.astrovisbackend.mappers: debug
+  type-aliases-package: com.astrovis.astrovisbackend.model
+  mapper-locations: classpath:/mappers/*Mapper.xml
+
+
+
+
+
+
