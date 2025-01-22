@@ -2,8 +2,7 @@ spring:
   application:
     name: astroVisBackend
   config:
-    import: classpath:config/databaseConfig.yml
-
+    import: classpath:config/databaseConfig.yml, config/securityConfig.yml
 
 server:
   port: 8080

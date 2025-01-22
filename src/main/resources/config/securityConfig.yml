@@ -1,0 +1,3 @@
+jwt:
+  secretKey: YCJJCY
+  tokenExpirationInDays: 7
