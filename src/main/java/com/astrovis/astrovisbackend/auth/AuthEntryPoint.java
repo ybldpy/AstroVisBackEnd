@@ -1,6 +1,7 @@
 package com.astrovis.astrovisbackend.auth;
 
 import com.astrovis.astrovisbackend.commons.Response;
+import com.astrovis.astrovisbackend.commons.ResponseConstants;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -14,12 +15,10 @@ import java.io.PrintWriter;
 public class AuthEntryPoint implements AuthenticationEntryPoint {
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authException) throws IOException, ServletException {
-        Response returnReponse = new Response(403,"Forbidden",null);
-
+        Response returnReponse = Response.error(ResponseConstants.CODE_FORBIDDEN,"Forbidden");
         PrintWriter output = response.getWriter();
         output.write(new ObjectMapper().writeValueAsString(returnReponse));
         output.flush();
         output.close();
-
     }
 }

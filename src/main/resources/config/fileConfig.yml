@@ -1,0 +1,8 @@
+uploadedFileDir: E:/test/backendTempDir/uploadedFileDir
+tempDir: E:/test/backendTempDir/tempDir
+
+fileProcessService:
+  octreeConverterRequestUrl: http://localhost:5000/createOctreeConvertionTask
+  convertionTaskQueryUrl: http://localhost:5000/queryConvertionTask
+
+

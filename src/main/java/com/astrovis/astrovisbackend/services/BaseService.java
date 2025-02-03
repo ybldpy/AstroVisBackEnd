@@ -22,7 +22,7 @@ public abstract class BaseService<Mapper,Record,Example> {
 
 
 
-    private static final Log log = LogFactory.getLog(BaseService.class);
+    private final Log log = LogFactory.getLog(this.getClass());
 
     public Mapper mapper;
 
@@ -30,6 +30,10 @@ public abstract class BaseService<Mapper,Record,Example> {
     private ApplicationContext applicationContext;
 
 
+
+    protected Log getLog(){
+        return log;
+    }
 
     public int countByExample(Example example) {
         initMapper();

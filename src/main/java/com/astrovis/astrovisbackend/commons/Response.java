@@ -35,4 +35,16 @@ public class Response <T>{
     public void setData(T data) {
         this.data = data;
     }
+
+
+
+    public static Response ok(Object data){
+        return new Response(ResponseConstants.CODE_OK,ResponseConstants.MSG_OK,data);
+    }
+
+    public static Response error(int errorCode,String msg){
+        return new Response(errorCode,msg,null);
+    }
+
+
 }

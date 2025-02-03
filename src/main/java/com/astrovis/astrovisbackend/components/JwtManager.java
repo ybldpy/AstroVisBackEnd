@@ -12,12 +12,11 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
-import static org.springframework.security.config.Elements.JWT;
 
 @Component
 public class JwtManager {
-    private static final String CLAIM_KEY_USERNAME = "USER";
-    private static final String CLAIM_KEY_CREATED = "CREATED";
+    private static final String CLAIM_KEY_USERNAME = Claims.SUBJECT;
+    private static final String CLAIM_KEY_CREATED = Claims.ISSUED_AT;
 
     @Value("${jwt.secretKey}")
     private String secret;
@@ -29,7 +28,7 @@ public class JwtManager {
 
     @Value("${jwt.tokenExpirationInDays}")
     public void setExpiration(int expirationDays){
-        expiration = expirationDays*24*60l;
+        expiration = expirationDays*24*3600l;
     }
 
 
@@ -74,6 +73,7 @@ public class JwtManager {
             claims = Jwts.parser().setSigningKey(secret).parseClaimsJws(token).getBody();
         } catch (Exception e) {
             claims = null;
+            e.printStackTrace();
         }
         return claims;
     }

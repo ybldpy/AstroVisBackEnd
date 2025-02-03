@@ -50,7 +50,7 @@
         <!--        <table tableName="t_turnover" domainObjectName="Turnover" ><generatedKey column="id" sqlStatement="Mysql" identity="true"/></table>-->
         <!--        <table tableName="t_user_address" domainObjectName="UserAddress" ><generatedKey column="id" sqlStatement="Mysql" identity="true"/></table>-->
         <!--        <table tableName="t_user_role" domainObjectName="UserRole" ><generatedKey column="id" sqlStatement="Mysql" identity="true"/></table>-->
-        <table tableName="t_user" domainObjectName="User" ><generatedKey column="uid" sqlStatement="Mysql" identity="true"/></table>
+        <table tableName="t_uploaded_file" domainObjectName="UploadedFile" ></table>
         <!--        <table tableName="shopping_record" domainObjectName="ShoppingRecord" ><generatedKey column="id" sqlStatement="Mysql" identity="true"/></table>-->
     </context>
 </generatorConfiguration>

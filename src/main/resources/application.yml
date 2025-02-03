@@ -1,11 +1,17 @@
 spring:
   application:
     name: astroVisBackend
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 15MB
   config:
-    import: classpath:config/databaseConfig.yml, config/securityConfig.yml
+    import: classpath:config/databaseConfig.yml, config/securityConfig.yml, config/fileConfig.yml
 
 server:
   port: 8080
+
+
 
 
 
@@ -19,8 +25,10 @@ mybatis:
       com.astrovis.astrovisbackend.mappers: debug
   type-aliases-package: com.astrovis.astrovisbackend.model
   mapper-locations: classpath:/mappers/*Mapper.xml
-
-
+jasypt:
+  encryptor:
+    algorithm: PBEWithMD5AndTripleDES
+    iv-generator-classname: org.jasypt.iv.NoIvGenerator
 
 
 
