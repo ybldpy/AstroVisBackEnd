@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -30,7 +31,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Service
-public class UploadedFileService extends BaseService<UploadedFileMapper,UploadedFile, UploadedFileExample>{
+public class UploadedFileService extends BaseService<UploadedFileMapper, UploadedFile, UploadedFileExample> {
 
     public static final int STATUS_FILE_PROCESS_FAILED = -1;
     public static final int STATUS_FILE_CREATED = 0;
@@ -40,12 +41,11 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
 
     public static final int STATUS_FILE_CANCELED = 4;
 
-    private static final int IO_BUFFER_SIZE = 1024*1024*4;
+    private static final int IO_BUFFER_SIZE = 1024 * 1024 * 4;
 
 
     @Autowired
     FileProcessService fileProcessService;
-
 
 
     private final static String UUID_GENERATE_PREFIX = "file:id:";
@@ -54,19 +54,13 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
     UserService userService;
 
 
-
-
     @Value("${tempDir}")
     private String tempDirPath;
 
     @Value("${uploadedFileDir}")
     private String readyFilesDir;
 
-    private static class FileUploadTask{
-
-
-
-
+    private static class FileUploadTask {
 
 
         public int getUploadedChunkCount() {
@@ -111,23 +105,28 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
             this.state = state;
         }
 
+        public void setAttributeMapping(Map<String, String> attributeMapping) {
+            this.attributeMapping = attributeMapping;
+        }
+
+        public Map<String, String> getAttributeMapping() {
+            return this.attributeMapping;
+        }
+
         private Lock fileLock = new ReentrantLock();
         private int totalChunks;
         private int state;
 
-
-
+        private Map<String, String> attributeMapping;
         private String originalFileName;
-
-
 
 
     }
 
-    private Map<String,FileUploadTask> fileUploadTaskMap = new ConcurrentHashMap<>();
+    private Map<String, FileUploadTask> fileUploadTaskMap = new ConcurrentHashMap<>();
+    private Map<String, Boolean> fileNameAppearanceMap = new ConcurrentHashMap<>();
     private Set<String> retryUpdateStateSet = new HashSet<>();
     private Lock retryLock = new ReentrantLock();
-
 
 
     @Autowired
@@ -135,20 +134,21 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
     private UploadedFileService uploadedFileService;
 
 
-
-    private UploadedFileService getThisProxy(){
+    private UploadedFileService getThisProxy() {
         return this.uploadedFileService;
     }
 
     @Scheduled(fixedDelay = 5000)
-    public void retryUpdateState(){
-        if (retryUpdateStateSet.size()<1){return;}
+    public void retryUpdateState() {
+        if (retryUpdateStateSet.size() < 1) {
+            return;
+        }
         retryLock.lock();
         List<String> successFileList = new ArrayList<>();
         UploadedFileService proxy = getThisProxy();
-        for(String fileId: retryUpdateStateSet){
+        for (String fileId : retryUpdateStateSet) {
             FileUploadTask fileUploadTask = fileUploadTaskMap.get(fileId);
-            if (fileUploadTask==null){
+            if (fileUploadTask == null) {
                 successFileList.add(fileId);
                 continue;
             }
@@ -156,67 +156,63 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
             try {
                 fileLock.lock();
                 boolean success = proxy.updateFileState(fileId, fileUploadTask.getState());
-                if (success){
+                if (success) {
                     successFileList.add(fileId);
                 }
-            }
-            catch (Exception e){
+            } catch (Exception e) {
                 getLog().error(e.getMessage());
-            }
-            finally {
+            } finally {
                 fileLock.unlock();
             }
         }
-        for(String s:successFileList){
+        for (String s : successFileList) {
             retryUpdateStateSet.remove(s);
         }
         retryLock.unlock();
     }
 
 
-
-
-    public boolean fileUploadTaskExist(String fileId){
-         return fileUploadTaskMap.get(fileId)!=null;
+    public boolean fileUploadTaskExist(String fileId) {
+        return fileUploadTaskMap.get(fileId) != null;
     }
 
-    public boolean storeFileChunk(String fileId, int chunkIndex,MultipartFile multipartFile){
+    public boolean storeFileChunk(String fileId, int chunkIndex, MultipartFile multipartFile) {
 
         FileUploadTask fileUploadTask = fileUploadTaskMap.get(fileId);
-        if (fileUploadTask == null){
+        if (fileUploadTask == null) {
             return false;
         }
         fileUploadTask.getFileLock().lock();
-        if (fileUploadTask.getState() == STATUS_FILE_CANCELED){
+        if (fileUploadTask.getState() == STATUS_FILE_CANCELED) {
             fileUploadTask.getFileLock().unlock();
             return false;
         }
-        if (fileUploadTask.getTotalChunks() <= chunkIndex){return false;}
-        String path = tempDirPath+"/"+fileId+"/"+chunkIndex;
+        if (fileUploadTask.getTotalChunks() <= chunkIndex) {
+            return false;
+        }
+        String path = tempDirPath + "/" + fileId + "/" + chunkIndex;
         OutputStream outputStream = null;
         try {
             outputStream = new BufferedOutputStream(new FileOutputStream(path));
             outputStream.write(multipartFile.getBytes());
 
-            int count = fileUploadTask.getUploadedChunkCount()+1;
+            int count = fileUploadTask.getUploadedChunkCount() + 1;
             fileUploadTask.setUploadedChunkCount(count);
-            if (count>=fileUploadTask.getTotalChunks()){
-                boolean res = getThisProxy().updateFileState(fileId,STATUS_FILE_PROCESSING);
-                if (!res){
+            if (count >= fileUploadTask.getTotalChunks()) {
+                boolean res = getThisProxy().updateFileState(fileId, STATUS_FILE_PROCESSING);
+                if (!res) {
                     pushToRetryUpdateStateQueue(fileId);
                 }
 
                 fileUploadTask.setState(STATUS_FILE_PROCESSING);
             }
             return true;
-        }
-        catch (IOException e){
+        } catch (IOException e) {
             getLog().error(e.getMessage());
             return false;
-        }
-        finally {
+        } finally {
             fileUploadTask.getFileLock().unlock();
-            if (outputStream!=null){
+            if (outputStream != null) {
                 try {
                     outputStream.close();
                 } catch (IOException e) {
@@ -227,96 +223,103 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
     }
 
 
-    private String generateFileId(String uploader,String fileName){
-        return UUID.nameUUIDFromBytes((UUID_GENERATE_PREFIX+uploader+":"+fileName).getBytes()).toString().replaceAll("-","");
+    private String generateFileId(String uploader, String fileName) {
+        return UUID.randomUUID().toString().replaceAll("-", "");
     }
 
-    @Transactional
-    public Result<String> createCatalogFileUploadTask(User user, String fileName, String originalFileName,int chunkNums){
-        String fileId = generateFileId(user.getUsername(),fileName);
-        FileUploadTask fileUploadTask = fileUploadTaskMap.get(fileId);
-        Result<String> result = new Result();
-        if (fileUploadTask!=null){
-            result.setStatus(0);
-            result.setMsg("Dataset exist!");
+    public Result<String> createCatalogFileUploadTask(User user, String fileName, String originalFileName, int chunkNums, Map<String, String> attributeMapping) {
+
+
+        String userFileName = user.getUsername() + ":" + fileName;
+        try {
+            Result<String> result = new Result();
+            FileUploadTask fileUploadTask = null;
+            synchronized (fileNameAppearanceMap) {
+                Boolean fileNameExist = fileNameAppearanceMap.get(userFileName);
+                if (fileNameExist != null) {
+                    result.setStatus(0);
+                    result.setMsg("Dataset exist!");
+                    return result;
+                }
+                fileNameAppearanceMap.put(userFileName, false);
+            }
+
+
+            String fileId = generateFileId(user.getUsername(), fileName);
+            UserExample userExample = new UserExample();
+            userExample.createCriteria().andUsernameEqualTo(user.getUsername());
+            User curUser = userService.selectFirstByExample(userExample);
+
+            UploadedFileExample uploadedFileExample = new UploadedFileExample();
+            uploadedFileExample.createCriteria().andUploaderEqualTo(curUser.getUid()).andFilenameEqualTo(fileName).andDeletedEqualTo(false);
+            UploadedFile uploadedFile = selectFirstByExample(uploadedFileExample);
+            if (uploadedFile != null) {
+                result = new Result();
+                result.setStatus(0);
+                result.setMsg("Dataset exists!");
+                fileNameAppearanceMap.remove(userFileName);
+                return result;
+            }
+
+
+            int uploaderId = curUser.getUid();
+            uploadedFile = new UploadedFile();
+            uploadedFile.setFileid(fileId);
+            uploadedFile.setFilename(fileName);
+            uploadedFile.setCategory(0);
+            uploadedFile.setUploader(uploaderId);
+            uploadedFile.setFilestatus(STATUS_FILE_RECEIVING);
+            uploadedFile.setOriginalfilename(originalFileName);
+            uploadedFile.setDeleted(false);
+            boolean success = insert(uploadedFile) > 0;
+            fileNameAppearanceMap.remove(userFileName);
+            String tempPath = tempDirPath + "/" + fileId;
+            File file = new File(tempPath);
+            if (file.exists()) {
+                deleteDirFiles(tempPath);
+            } else {
+                success &= file.mkdirs();
+            }
+            if (!success) {
+                result.setStatus(0);
+                result.setMsg("Unable to create upload task");
+            } else {
+                fileUploadTask = new FileUploadTask();
+                fileUploadTask.setOriginalFileName(originalFileName);
+                fileUploadTask.setTotalChunks(chunkNums);
+                fileUploadTask.setState(STATUS_FILE_RECEIVING);
+                fileUploadTaskMap.put(fileId, fileUploadTask);
+                fileUploadTask.setAttributeMapping(attributeMapping);
+                result.setStatus(1);
+                result.setData(fileId);
+            }
             return result;
+        } finally {
+            fileNameAppearanceMap.remove(userFileName);
         }
-
-
-
-        UploadedFileExample uploadedFileExample = new UploadedFileExample();
-        uploadedFileExample.createCriteria().andFileidEqualTo(fileId).andDeletedEqualTo(false);
-
-        UploadedFile uploadedFile = selectFirstByExample(uploadedFileExample);
-        if (uploadedFile!=null){
-            result = new Result();
-            result.setStatus(0);
-            result.setMsg("Dataset exists!");
-            return result;
-        }
-
-        UserExample userExample = new UserExample();
-        userExample.createCriteria().andUsernameEqualTo(user.getUsername());
-        User curUser = userService.selectFirstByExample(userExample);
-
-        int uploaderId = curUser.getUid();
-        uploadedFile = new UploadedFile();
-        uploadedFile.setFileid(fileId);
-        uploadedFile.setFilename(fileName);
-        uploadedFile.setCategory(0);
-        uploadedFile.setUploader(uploaderId);
-        uploadedFile.setFilestatus(STATUS_FILE_RECEIVING);
-        uploadedFile.setOriginalfilename(originalFileName);
-        uploadedFile.setDeleted(false);
-        boolean success = insert(uploadedFile)>0;
-        String tempPath = tempDirPath+"/"+fileId;
-        File file = new File(tempPath);
-        if (file.exists()){
-            deleteDirFiles(tempPath);
-        }
-        else {
-            success &= file.mkdirs();
-        }
-        if (!success){
-            result.setStatus(0);
-            result.setMsg("Unable to create upload task");
-        }
-        else {
-            fileUploadTask = new FileUploadTask();
-            fileUploadTask.setOriginalFileName(originalFileName);
-            fileUploadTask.setTotalChunks(chunkNums);
-            fileUploadTask.setState(STATUS_FILE_RECEIVING);
-            fileUploadTaskMap.put(fileId,fileUploadTask);
-            result.setStatus(1);
-            result.setData(fileId);
-        }
-
-        return result;
     }
 
 
     @Transactional
-    public boolean deleteFile(String fileId){
+    public boolean deleteFile(String fileId) {
         FileUploadTask fileUploadTask = fileUploadTaskMap.get(fileId);
 
-        if (fileUploadTask!=null){
+        if (fileUploadTask != null) {
             fileUploadTask.getFileLock().lock();
-            if (fileUploadTask.getState()==STATUS_FILE_PROCESSING){
+            if (fileUploadTask.getState() == STATUS_FILE_PROCESSING) {
                 fileUploadTask.getFileLock().unlock();
                 cancelUploadTask(fileId);
                 return false;
-            }
-            else if (fileUploadTask.getState()==STATUS_FILE_RECEIVING){
+            } else if (fileUploadTask.getState() == STATUS_FILE_RECEIVING) {
                 getThisProxy().cancelUploadTask(fileId);
                 fileUploadTask.getFileLock().unlock();
                 return true;
-            }
-            else {
+            } else {
                 UploadedFileExample uploadedFileExample = new UploadedFileExample();
                 uploadedFileExample.createCriteria().andFileidEqualTo(fileId);
                 UploadedFile uploadedFile = new UploadedFile();
                 uploadedFile.setDeleted(true);
-                updateByExampleSelective(uploadedFile,uploadedFileExample);
+                updateByExampleSelective(uploadedFile, uploadedFileExample);
                 fileUploadTaskMap.remove(fileId);
                 return true;
             }
@@ -326,24 +329,24 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
         UploadedFileExample uploadedFileExample = new UploadedFileExample();
         uploadedFileExample.createCriteria().andFileidEqualTo(fileId).andDeletedEqualTo(false);
         UploadedFile uploadedFile = selectFirstByExample(uploadedFileExample);
-        if (uploadedFile==null){
+        if (uploadedFile == null) {
             return true;
         }
         uploadedFile = new UploadedFile();
         uploadedFile.setDeleted(true);
-        return updateByExampleSelective(uploadedFile,uploadedFileExample)>0;
+        return updateByExampleSelective(uploadedFile, uploadedFileExample) > 0;
 
     }
 
     @Transactional
-    public void cancelUploadTask(String fileId){
+    public void cancelUploadTask(String fileId) {
         FileUploadTask fileUploadTask = fileUploadTaskMap.get(fileId);
-        if (fileUploadTask==null){
+        if (fileUploadTask == null) {
             return;
         }
         fileUploadTask.getFileLock().lock();
 
-        if (fileUploadTask.getState()!=STATUS_FILE_RECEIVING){
+        if (fileUploadTask.getState() != STATUS_FILE_RECEIVING) {
             fileUploadTask.getFileLock().unlock();
             return;
         }
@@ -355,67 +358,68 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
         uploadedFileExample.createCriteria().andFileidEqualTo(fileId);
         UploadedFile uploadedFile = new UploadedFile();
         uploadedFile.setDeleted(true);
-        updateByExampleSelective(uploadedFile,uploadedFileExample);
+        updateByExampleSelective(uploadedFile, uploadedFileExample);
     }
 
-    private void deleteDirFiles(String path){
+    private void deleteDirFiles(String path) {
 
         File dir = new File(path);
-        if (!dir.exists()){return;}
-        for(File file:dir.listFiles()){
+        if (!dir.exists()) {
+            return;
+        }
+        for (File file : dir.listFiles()) {
             file.delete();
         }
     }
 
 
-    public boolean areAllChunksReceived(String fileId){
+    public boolean areAllChunksReceived(String fileId) {
         FileUploadTask fileUploadTask = fileUploadTaskMap.get(fileId);
-        return fileUploadTask!=null && fileUploadTask.getTotalChunks() <= fileUploadTask.getUploadedChunkCount();
+        return fileUploadTask != null && fileUploadTask.getTotalChunks() <= fileUploadTask.getUploadedChunkCount();
     }
 
 
     @Transactional
-    public boolean updateFileState(String fileId,int state){
+    public boolean updateFileState(String fileId, int state) {
         UploadedFileExample uploadedFileExample = new UploadedFileExample();
         uploadedFileExample.createCriteria().andFileidEqualTo(fileId);
         UploadedFile uploadedFile = selectFirstByExample(uploadedFileExample);
-        if (uploadedFile == null){return false;}
+        if (uploadedFile == null) {
+            return false;
+        }
         uploadedFile.setFilestatus(state);
-        int res = updateByExample(uploadedFile,uploadedFileExample);
+        int res = updateByExample(uploadedFile, uploadedFileExample);
         return res == 1;
     }
 
 
-    public void pushToRetryUpdateStateQueue(String fileId){
+    public void pushToRetryUpdateStateQueue(String fileId) {
         retryLock.lock();
         retryUpdateStateSet.add(fileId);
         retryLock.unlock();
     }
 
-    private void merge(OutputStream target,InputStream in) throws IOException {
+    private void merge(OutputStream target, InputStream in) throws IOException {
         byte[] buffer = new byte[IO_BUFFER_SIZE];
         int read = -1;
-        while ((read = in.read(buffer))!=-1){
-            target.write(buffer,0,read);
+        while ((read = in.read(buffer)) != -1) {
+            target.write(buffer, 0, read);
         }
     }
 
 
-
-
-    private void onProcessDone(String fileId,int updateState){
+    private void onProcessDone(String fileId, int updateState) {
         FileUploadTask fileUploadTask = fileUploadTaskMap.get(fileId);
         retryLock.lock();
         retryUpdateStateSet.remove(fileId);
         retryLock.unlock();
         fileUploadTask.getFileLock().lock();
-        boolean updateSuccess = updateFileState(fileId,updateState);
+        boolean updateSuccess = updateFileState(fileId, updateState);
         fileUploadTask.getFileLock().unlock();
-        if (!updateSuccess){
+        if (!updateSuccess) {
             fileUploadTask.setState(STATUS_FILE_READY);
             pushToRetryUpdateStateQueue(fileId);
-        }
-        else {
+        } else {
             fileUploadTaskMap.remove(fileId);
         }
         fileUploadTaskMap.remove(fileId);
@@ -423,42 +427,42 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
 
 
     @Async
-    public void asyncProcessFile(String fileId){
+    public void asyncProcessFile(String fileId) {
         FileUploadTask fileUploadTask = fileUploadTaskMap.get(fileId);
-        if (fileUploadTask == null){return;}
+        if (fileUploadTask == null) {
+            return;
+        }
         String originalFileFormat = fileUploadTask.getOriginalFileName();
-        String format = originalFileFormat.substring(originalFileFormat.lastIndexOf(".")+1);
-        String mergedFilePath = tempDirPath+"/"+fileId+"/merged";
-        File chunksDir = new File(tempDirPath+"/"+fileId);
+        String format = originalFileFormat.substring(originalFileFormat.lastIndexOf(".") + 1);
+        String mergedFilePath = tempDirPath + "/" + fileId + "/merged";
+        File chunksDir = new File(tempDirPath + "/" + fileId);
         File[] chunks = chunksDir.listFiles();
-        Arrays.sort(chunks,(f1,f2)->{
+        Arrays.sort(chunks, (f1, f2) -> {
             int f1Index = Integer.parseInt(f1.getName());
             int f2Index = Integer.parseInt(f2.getName());
-            return f1Index-f2Index;
+            return f1Index - f2Index;
         });
         OutputStream targetOutputStream = null;
         InputStream in = null;
         boolean mergeSuccess = true;
         try {
             targetOutputStream = new BufferedOutputStream(new FileOutputStream(mergedFilePath));
-            for(File chunk:chunks){
+            for (File chunk : chunks) {
                 in = new BufferedInputStream(new FileInputStream(chunk));
-                merge(targetOutputStream,in);
+                merge(targetOutputStream, in);
                 in.close();
             }
-        }
-        catch (IOException e){
+        } catch (IOException e) {
             mergeSuccess = false;
-        }
-        finally {
-            if (targetOutputStream!=null){
+        } finally {
+            if (targetOutputStream != null) {
                 try {
                     targetOutputStream.close();
                 } catch (IOException e) {
                     getLog().error(e.getMessage());
                 }
             }
-            if (in!=null){
+            if (in != null) {
                 try {
                     in.close();
                 } catch (IOException e) {
@@ -467,27 +471,26 @@ public class UploadedFileService extends BaseService<UploadedFileMapper,Uploaded
             }
         }
 
-        if (!mergeSuccess){
+        if (!mergeSuccess) {
             // onProcessDone(fileId,STATUS_FILE_PROCESS_FAILED);
             UploadedFileExample uploadedFileExample = new UploadedFileExample();
             uploadedFileExample.createCriteria().andFileidEqualTo(fileId);
             deleteByExample(uploadedFileExample);
-            deleteDirFiles(tempDirPath+"/"+fileId);
+            deleteDirFiles(tempDirPath + "/" + fileId);
             return;
         }
 
-        String outputDir = readyFilesDir+"/"+fileId;
+        String outputDir = readyFilesDir + "/" + fileId;
         File dir = new File(outputDir);
-        if (!dir.exists()){
+        if (!dir.exists()) {
             dir.mkdirs();
+        } else {
+            deleteDirFiles(readyFilesDir + "/" + fileId);
         }
-        else {
-            deleteDirFiles(readyFilesDir+"/"+fileId);
-        }
-        boolean processResult = fileProcessService.transferDatasetToOctree(mergedFilePath,format,readyFilesDir+"/"+fileId);
-        int updateState = processResult?STATUS_FILE_READY:STATUS_FILE_PROCESS_FAILED;
-        onProcessDone(fileId,updateState);
-        deleteDirFiles(tempDirPath+"/"+fileId);
+        boolean processResult = fileProcessService.transferDatasetToOctree(mergedFilePath, format, readyFilesDir + "/" + fileId, fileUploadTask.getAttributeMapping());
+        int updateState = processResult ? STATUS_FILE_READY : STATUS_FILE_PROCESS_FAILED;
+        onProcessDone(fileId, updateState);
+        deleteDirFiles(tempDirPath + "/" + fileId);
     }
 
 }

@@ -15,6 +15,7 @@ import com.astrovis.astrovisbackend.services.UserService;
 import org.apache.commons.lang3.StringUtils;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.MediaType;
@@ -30,7 +31,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 
 import java.io.IOException;
-import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -107,6 +107,7 @@ public class FileController {
     private UploadedFileService uploadedFileService;
 
 
+    @Value("${uploadedFileDir}")
     private String uploadedFileDir;
 
 
@@ -124,7 +125,7 @@ public class FileController {
     }
 
 
-    @GetMapping("/{fileId}/{file}")
+    @GetMapping("/get/{fileId}/{file}")
     public ResponseEntity<Resource> getFile(@PathVariable String fileId,@PathVariable String file) throws IOException {
         Path filePath = Paths.get(uploadedFileDir+"/"+fileId+"/"+file);
         if (!Files.exists(filePath)) {
@@ -174,7 +175,7 @@ public class FileController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
         User user = (User) userDetails;
-        return Response.ok(uploadedFileService.createCatalogFileUploadTask(user,fileUploadTask.datasetName,fileUploadTask.originalFileName,fileUploadTask.getChunkNums()));
+        return Response.ok(uploadedFileService.createCatalogFileUploadTask(user,fileUploadTask.datasetName,fileUploadTask.originalFileName,fileUploadTask.getChunkNums(),(Map<String,String>)fileUploadTask.getParameters().get("catalogAttributeMapping")));
 
     }
 
@@ -237,14 +238,16 @@ public class FileController {
         else {
             result.setStatus(1);
         }
-
         return Response.ok(result);
     }
 
-    @GetMapping("/queryAll")
-    @ResponseBody
-    public Response<Result<List<UploadedFile>>> queryAllUserFiles(Authentication authentication){
 
+
+
+
+    @GetMapping("/queryFiles")
+    @ResponseBody
+    public Response<Result<List<UploadedFile>>> queryUserFiles(@RequestParam(required = false) String fileId,@RequestParam(required = false) Integer status,@RequestParam(required = false) Integer category,Authentication authentication){
 
 
         List<UploadedFile> files = new ArrayList<>();
@@ -260,8 +263,24 @@ public class FileController {
         if (user==null){
             return Response.ok(result);
         }
+
+
+
         UploadedFileExample uploadedFileExample = new UploadedFileExample();
-        uploadedFileExample.createCriteria().andUploaderEqualTo(user.getUid()).andDeletedEqualTo(false);
+
+        UploadedFileExample.Criteria criteria = uploadedFileExample.createCriteria();
+        criteria.andUploaderEqualTo(user.getUid()).andDeletedEqualTo(false);
+        if (!StringUtils.isBlank(fileId)){
+            criteria.andFileidEqualTo(fileId);
+        }
+        if (status!=null){
+            criteria.andFilestatusEqualTo(status);
+        }
+        if (category!=null){
+            criteria.andCategoryEqualTo(category);
+        }
+
+
         List<UploadedFile> userFiles = uploadedFileService.selectByExample(uploadedFileExample);
         if (userFiles == null){
             return Response.ok(result);

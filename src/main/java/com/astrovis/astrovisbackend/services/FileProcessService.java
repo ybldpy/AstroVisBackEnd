@@ -33,6 +33,9 @@ public class FileProcessService {
 
         private boolean success;
 
+        private Map<String,String> attributeMapping;
+        private static final String[] attributeNames = new String[]{"bv","lum","absMag","vx","vy","vz","speed"};
+
         private final RestTemplate restTemplate = new RestTemplate();
 
         private final CountDownLatch latch = new CountDownLatch(1);
@@ -40,19 +43,25 @@ public class FileProcessService {
         private String convertionTaskQueryUrl;
         private String octreeConverterRequestUrl;
 
-        public OctreeConverter(String filepath,String fileFormat,String outputDir,String octreeConverterRequestUrl,String convertionTaskQueryUrl){
+        public OctreeConverter(String filepath,String fileFormat,Map<String,String> attributeMapping,String outputDir,String octreeConverterRequestUrl,String convertionTaskQueryUrl){
             this.fileFormat = fileFormat;
             this.filePath = filepath;
             this.outputDir = outputDir;
             this.convertionTaskQueryUrl = convertionTaskQueryUrl;
             this.octreeConverterRequestUrl = octreeConverterRequestUrl;
+
+            this.attributeMapping = new HashMap<>();
+            for(String attribute:attributeNames){
+                this.attributeMapping.put(attribute,attributeMapping.get(attribute));
+            }
         }
 
 
 
-        private String initConvertTask(String filePath,String fileFormat,String outputDir){
-            Map<String, String> requestParams = new HashMap<>();
+        private String createConvertTask(String filePath,String fileFormat, Map<String,String> attributeMapping,String outputDir){
+            Map<String, Object> requestParams = new HashMap<>();
             requestParams.put("filePath", filePath);
+            requestParams.put("attributeMapping", attributeMapping);
             requestParams.put("fileFormat", fileFormat);
             requestParams.put("outputDir", outputDir);
             // 构造请求头（可选）
@@ -71,12 +80,12 @@ public class FileProcessService {
             }
         }
 
-        private Map sendPostRequest(String url,Map<String,String> params){
+        private Map sendPostRequest(String url,Map<String,Object> params){
 
             HttpHeaders headers = new HttpHeaders();
             headers.set("Content-Type", "application/json"); // 设置为 JSON
             // 构造请求实体
-            HttpEntity<Map<String, String>> requestEntity = new HttpEntity<>(params, headers);
+            HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(params, headers);
             try {
                 // 发送 POST 请求
                 ResponseEntity<Map> response = restTemplate.postForEntity(url,requestEntity, Map.class);
@@ -94,7 +103,7 @@ public class FileProcessService {
 
 
         private int queryStatus(String taskId){
-            Map<String, String> requestParams = new HashMap<>();
+            Map<String, Object> requestParams = new HashMap<>();
             requestParams.put("taskId",taskId);
             Map<String,Object> response = sendPostRequest(convertionTaskQueryUrl,requestParams);
             if (response == null || response.get("status") == null){
@@ -121,7 +130,7 @@ public class FileProcessService {
         @Override
         public void run() {
             try {
-                String taskId = initConvertTask(filePath, fileFormat, outputDir);
+                String taskId = createConvertTask(filePath, fileFormat, attributeMapping,outputDir);
                 if (taskId != null) {
                     success = getConvertResult(taskId);
                 }
@@ -152,9 +161,9 @@ public class FileProcessService {
         }
     }
 
-    public boolean transferDatasetToOctree(String filePath, String fileFormat, String outputDir){
+    public boolean transferDatasetToOctree(String filePath, String fileFormat, String outputDir,Map<String,String> attributeMapping){
 
-        OctreeConverter octreeConverter = new OctreeConverter(filePath,fileFormat,outputDir,octreeConverterRequestUrl,convertionTaskQueryUrl);
+        OctreeConverter octreeConverter = new OctreeConverter(filePath,fileFormat,attributeMapping,outputDir,octreeConverterRequestUrl,convertionTaskQueryUrl);
         octreeConverter.covert();
         return octreeConverter.getResult();
     }
