@@ -73,7 +73,7 @@ public class JwtManager {
             claims = Jwts.parser().setSigningKey(secret).parseClaimsJws(token).getBody();
         } catch (Exception e) {
             claims = null;
-            e.printStackTrace();
+
         }
         return claims;
     }

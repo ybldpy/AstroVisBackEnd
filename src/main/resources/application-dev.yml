@@ -1,0 +1,37 @@
+uploadedFileDir: E:/test/backendTempDir/uploadedFileDir
+tempDir: E:/test/backendTempDir/tempDir
+
+fileProcessService:
+  octreeConverterRequestUrl: http://localhost:5000/createOctreeConvertionTask
+  convertionTaskQueryUrl: http://localhost:5000/queryConvertionTask
+
+
+
+spring:
+  application:
+    name: astroVisBackend
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 15MB
+  config:
+    import: classpath:config/databaseConfig.yml, config/securityConfig.yml
+
+server:
+  port: 8080
+
+
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  logging:
+    level:
+      com.astrovis.astrovisbackend.mappers: debug
+  type-aliases-package: com.astrovis.astrovisbackend.model
+  mapper-locations: classpath:/mappers/*Mapper.xml
+jasypt:
+  encryptor:
+    algorithm: PBEWithMD5AndTripleDES
+    iv-generator-classname: org.jasypt.iv.NoIvGenerator
